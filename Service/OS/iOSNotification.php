@@ -56,7 +56,10 @@ class iOSNotification implements OSNotificationServiceInterface
      *
      * @var boolean
      */
-    protected $jsonUnescapedUnicode = FALSE;
+    protected $jsonUnescapedUnicode = false;
+
+    /** @var \Symfony\Component\HttpKernel\Log\LoggerInterface */
+    protected $logger;
 
     /**
      * Constructor
@@ -65,7 +68,7 @@ class iOSNotification implements OSNotificationServiceInterface
      * @param $pem
      * @param $passphrase
      */
-    public function __construct($sandbox, $pem, $passphrase = "", $jsonUnescapedUnicode = FALSE)
+    public function __construct($sandbox, $pem, $passphrase = "", $jsonUnescapedUnicode = false)
     {
         $this->useSandbox = $sandbox;
         $this->pem = $pem;
@@ -74,6 +77,12 @@ class iOSNotification implements OSNotificationServiceInterface
         $this->messages = array();
         $this->lastMessageId = -1;
         $this->jsonUnescapedUnicode = $jsonUnescapedUnicode;
+    }
+
+    public function setLogger($logger)
+    {
+        $this->logger = $logger;
+        return $this;
     }
 
     /**
@@ -108,6 +117,11 @@ class iOSNotification implements OSNotificationServiceInterface
 
         $messageId = ++$this->lastMessageId;
         $this->messages[$messageId] = $this->createPayload($messageId, $message->getDeviceIdentifier(), $message->getMessageBody());
+
+        if ($this->logger) {
+            $this->logger->debug('Sending Push message to Apple using url: '.$apnURL . ' with payload: ' . $this->messages[$messageId]);
+        }
+
         $this->sendMessages($messageId, $apnURL);
 
         return $messageId;
@@ -132,6 +146,10 @@ class iOSNotification implements OSNotificationServiceInterface
 
             // Check if there is an error result
             if (is_array($result)) {
+                if ($this->logger) {
+                    $this->logger->err('Sending of Push message failed', $result);
+                }
+
                 // Resend all messages that where send after the failed message
                 $this->sendMessages($result['identifier']+1, $apnURL);
             }
@@ -150,15 +168,24 @@ class iOSNotification implements OSNotificationServiceInterface
     {
         // Get the correct Apn stream and send data
         $fp = $this->getApnStream($apnURL);
-        $response = (strlen($payload) === @fwrite($fp, $payload, strlen($payload)));
+        $written = @fwrite($fp, $payload, strlen($payload));
+        $response = (strlen($payload) === $written);
+
+        if ($response === false && $this->logger) {
+            $this->logger->err('Could not write all bytes to the connection, written '.$written. ' of '. strlen($payload));
+        }
 
         // Check if there is responsedata to read
         $readStreams = array($fp);
-        $null = NULL;
+        $null = null;
         $streamsReadyToRead = stream_select($readStreams, $null, $null, 1, 0);
         if ($streamsReadyToRead > 0) {
             // Unpack error response data and set as the result
-            $response = @unpack("Ccommand/Cstatus/Nidentifier", fread($fp, 6));
+            $read = fread($fp, 6);
+            $response = unpack("Ccommand/Cstatus/Nidentifier", $read);
+            if ($response === false && $this->logger) {
+                $this->logger->err('Could not read error message: '.print_r($read, true));
+            }
             $this->closeApnStream($apnURL);
         }
 

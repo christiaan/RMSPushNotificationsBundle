@@ -3,21 +3,23 @@
 namespace RMS\PushNotificationsBundle\Service;
 
 use RMS\PushNotificationsBundle\Message\MessageInterface;
+use RMS\PushNotificationsBundle\Service\OS\OSNotificationServiceInterface;
 
 class Notifications
 {
     /**
      * Array of handlers
      *
-     * @var array
+     * @var OSNotificationServiceInterface[]
      */
     protected $handlers = array();
 
-    /**
-     * Constructor
-     */
-    public function __construct()
+    protected $logger;
+
+    public function setLogger($logger)
     {
+        $this->logger = $logger;
+        return $this;
     }
 
     /**
@@ -34,7 +36,12 @@ class Notifications
             throw new \RuntimeException("OS type {$message->getTargetOS()} not supported");
         }
 
-        return $this->handlers[$message->getTargetOS()]->send($message);
+        $handler = $this->handlers[$message->getTargetOS()];
+        if ($this->logger && method_exists($handler, 'setLogger')) {
+            $handler->setLogger($this->logger);
+        }
+
+        return $handler->send($message);
     }
 
     /**
