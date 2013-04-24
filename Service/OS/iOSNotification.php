@@ -182,9 +182,8 @@ class iOSNotification implements OSNotificationServiceInterface
         if ($streamsReadyToRead > 0) {
             // Unpack error response data and set as the result
             $read = fread($fp, 6);
-            $response = unpack("Ccommand/Cstatus/Nidentifier", $read);
-            if ($response === false && $this->logger) {
-                $this->logger->err('Could not read error message: '.print_r($read, true));
+            if (strlen($read) === 6) {
+                $response = unpack("Ccommand/Cstatus/Nidentifier", $read);
             }
             $this->closeApnStream($apnURL);
         }
